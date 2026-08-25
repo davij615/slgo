@@ -1,0 +1,88 @@
+ticker,sector
+AAPL,Electronic Technology
+NVDA,Electronic Technology
+AVGO,Electronic Technology
+AMD,Electronic Technology
+QCOM,Electronic Technology
+TXN,Electronic Technology
+MU,Electronic Technology
+INTC,Electronic Technology
+MSFT,Technology Services
+GOOGL,Technology Services
+META,Technology Services
+ORCL,Technology Services
+CRM,Technology Services
+ADBE,Technology Services
+NOW,Technology Services
+ACN,Technology Services
+AMZN,Retail Trade
+COST,Retail Trade
+WMT,Retail Trade
+HD,Retail Trade
+LOW,Retail Trade
+TGT,Retail Trade
+JPM,Finance
+BAC,Finance
+WFC,Finance
+GS,Finance
+MS,Finance
+V,Finance
+MA,Finance
+BLK,Finance
+SPGI,Finance
+XOM,Energy Minerals
+CVX,Energy Minerals
+COP,Energy Minerals
+EOG,Energy Minerals
+SLB,Energy Minerals
+PG,Consumer Non-Durables
+KO,Consumer Non-Durables
+PEP,Consumer Non-Durables
+PM,Consumer Non-Durables
+MDLZ,Consumer Non-Durables
+CAT,Producer Manufacturing
+GE,Producer Manufacturing
+HON,Producer Manufacturing
+DE,Producer Manufacturing
+LMT,Producer Manufacturing
+MCD,Consumer Services
+SBUX,Consumer Services
+BKNG,Consumer Services
+NFLX,Consumer Services
+DIS,Consumer Services
+NEE,Utilities
+DUK,Utilities
+SO,Utilities
+UPS,Transportation
+UNP,Transportation
+DAL,Transportation
+LIN,Process Industries
+SHW,Process Industries
+APD,Process Industries
+LLY,Health Technology
+MRK,Health Technology
+PFE,Health Technology
+ABBV,Health Technology
+JNJ,Health Technology
+TMO,Health Technology
+ABT,Health Technology
+DHR,Health Technology
+AMGN,Health Technology
+GILD,Health Technology
+VRTX,Health Technology
+REGN,Health Technology
+ISRG,Health Technology
+MRNA,Health Technology
+BIIB,Health Technology
+ZTS,Health Technology
+BSX,Health Technology
+MDT,Health Technology
+SYK,Health Technology
+UNH,Health Services
+ELV,Health Services
+CI,Health Services
+HUM,Health Services
+CVS,Health Services
+CNC,Health Services
+MCK,Health Services
+HCA,Health Services

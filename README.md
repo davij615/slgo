@@ -201,6 +201,25 @@ Math is in `api/_momentum.js` (pure, tested); `api/momentum.js` takes
 `?symbols=EX:TICK,...` and the frontend feeds it the chosen book's live picks. It's
 a smoothed read from trailing returns, not a tick feed — the *shape* is the signal.
 
+## Backtest engine: backtrader
+
+The combined book also runs on **backtrader** (`engine/bt_combined.py`) — a mature
+multi-asset framework with a realistic broker (commission + slippage) and battle-
+tested analyzers. It's the recommended engine: it holds the whole portfolio, and it
+**reuses this repo's own code** — the ranking calls `signals.composite_scores` (same
+math as the live screens) and the results are scored by `backtest_stats`
+(same PSR / deflated-Sharpe layer) and written to the same `public/backtest.json`, so
+the Backtest tab renders it unchanged. As a cross-check, our Sharpe matches
+backtrader's own SharpeRatio analyzer to 3 decimals.
+
+```bash
+pip install backtrader
+python engine/bt_combined.py --sample                                   # synthetic
+python engine/bt_combined.py --universe universe.csv --rebalance M       # live via yfinance
+```
+
+The `backtest` Action has an `engine` input (`backtrader` default | `custom`).
+
 ## Backtest (price-proxy + significance)
 
 The **Backtest** tab runs an event-driven backtest of the price-based composite
@@ -208,8 +227,11 @@ signal — the part that *can* be tested without point-in-time data. It does NOT
 replay the fundamental/ratings screen (that needs survivorship-free history we
 can't get; a survivor-only version would be badly upward-biased). Mechanics: signal
 on the rebalance close, fills at the next open (no lookahead), transaction + slippage
-cost on traded notional, monthly rebalance, marked to close. Two modes: `strategy`
-(hold top-N) and `signal` (long top-decile). Benchmarked against SPY.
+cost on traded notional, monthly rebalance, marked to close. Three modes: `strategy` (hold top-N), `signal` (long top-decile), and
+`combined` — the **weekly book you asked for**: every Monday it takes the top 5
+from each of the Conservative, Aggressive, and Health price-proxies, unions them,
+**inverse-volatility weights** them, and holds a week. Benchmarked against SPY.
+(Weekly rebalancing means high turnover — watch that stat; it's the cost of the cadence.)
 
 Crucially it ships the **significance layer** the validation research demanded, so a
 lucky curve can't pass for edge:
@@ -223,8 +245,18 @@ Math is in `engine/backtest_stats.py` and `engine/backtest.py` (pure, tested).
 ```bash
 python engine/backtest.py --sample                    # synthetic demo (no network)
 python engine/backtest.py --start 2015-01-01          # live via yfinance (DEMO_UNIVERSE)
+python engine/backtest.py --mode combined            # the weekly Mon book (top-5 x3, inverse-vol)
 python engine/backtest.py --tickers universe.txt --mode signal
 ```
+
+**Running the combined book live on GitHub:** edit `universe.csv` (columns
+`ticker,sector` — the sector labels `Health Technology` / `Health Services` are what
+feed the Health sleeve), then run the **backtest** Action (Actions tab → backtest →
+Run workflow). Inputs: `start`, `mode` (default `combined`), `rebalance` (`M`
+monthly — recommended — or `W` weekly Monday). It fetches via yfinance on GitHub's
+network, runs the book, and commits `public/backtest.json`, which the Backtest tab
+reads on the next Vercel deploy. Locally:
+`python engine/backtest.py --universe universe.csv --mode combined --rebalance M`.
 
 ⚠️ A backtest on a fixed CURRENT ticker list is survivorship-biased. Even a clean
 run is in-sample and overstates live results — read the deflated Sharpe and min

@@ -55,8 +55,12 @@ export default function Backtest({ data }) {
           <b> python engine/backtest.py</b> with a real universe for live results.</div>
       )}
       <p className="block-sub">
-        {data.mode === "signal" ? "Top-decile composite signal" : "Top-N composite strategy"},
-        {" "}{data.start} → {data.end}, monthly rebalance, next-open fills,
+        {data.mode && data.mode.startsWith("combined")
+          ? "Combined book — top 5 from each of Conservative + Aggressive + Health, inverse-volatility weighted"
+          : data.mode === "signal" ? "Top-decile composite signal" : "Top-N composite strategy"},
+        {" "}{data.start} → {data.end},
+        {" "}{data.config?.rebalance === "W" ? "weekly (Mon) rebalance" : "monthly rebalance"},
+        {data.engine ? ` · engine: ${data.engine}` : ", next-open fills"},
         {" "}{data.config?.cost_bps + data.config?.slip_bps}bps round-trip cost. Green = strategy,
         grey = SPY (both indexed to 100).
       </p>
@@ -70,6 +74,7 @@ export default function Backtest({ data }) {
         <Stat label="Max drawdown" value={pct(s.max_drawdown)} sub={s.spy_max_drawdown != null ? `SPY ${pct(s.spy_max_drawdown)}` : null} />
         <Stat label="Calmar" value={num(s.calmar)} />
         <Stat label="Turnover" value={s.turnover_annual != null ? `${s.turnover_annual}×/yr` : "—"} />
+        {s.trades != null && <Stat label="Trades" value={s.trades} sub="closed round-trips" />}
         {s.hit_rate != null && <Stat label="Hit rate" value={pct(s.hit_rate)} sub="rebalance periods +" />}
       </div>
 

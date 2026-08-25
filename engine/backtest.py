@@ -88,6 +88,75 @@ def score_universe(closes, i, universe, sectors):
     return dict(zip(names, scores))
 
 
+def sma_px(closes, i, w):
+    if i - w + 1 < 0:
+        return None
+    window = [c for c in closes[i - w + 1:i + 1] if c]
+    return sum(window) / len(window) if len(window) == w else None
+
+
+def _rank_eligible(closes, i, cand, sectors, k):
+    """Composite-rank a candidate subset, return the top k tickers."""
+    scores = score_universe(closes, i, cand, sectors)
+    return sorted(scores, key=lambda t: -(scores[t] if scores[t] is not None else -1e9))[:k]
+
+
+HEALTH_SET = {"Health Technology", "Health Services", "Health"}
+
+
+def default_selector(closes, i, universe, sectors, cfg):
+    scores = score_universe(closes, i, universe, sectors)
+    if not scores:
+        return {}
+    ranked = sorted(scores, key=lambda t: -scores[t])
+    k = cfg["top_n"] if cfg["mode"] == "strategy" else max(1, int(len(ranked) * cfg["top_quantile"]))
+    picks = ranked[:k]
+    return {t: 1.0 / len(picks) for t in picks}
+
+
+def combined_selector(closes, i, universe, sectors, cfg):
+    """Top-N from each of conservative / aggressive / health price-proxies, unioned,
+    then INVERSE-VOLATILITY weighted. This is the 'combined weekly book'."""
+    def pos_mom(t):
+        m = mom_12_1_px(closes[t], i)
+        return m is not None and m > 0
+
+    def above200(t):
+        s = sma_px(closes[t], i, 200)
+        return s is not None and closes[t][i] and closes[t][i] > s
+
+    def uptrend(t):
+        c = closes[t]
+        s50, s200 = sma_px(c, i, 50), sma_px(c, i, 200)
+        return s50 and s200 and c[i] and c[i] > s50 > s200
+
+    def near_high(t):
+        h = high_52w_px(closes[t], i)
+        return h is not None and h >= 0.75
+
+    k = cfg["top_n"]
+    conservative = [t for t in universe if pos_mom(t) and above200(t)]
+    aggressive = [t for t in universe if uptrend(t) and near_high(t)]
+    health = [t for t in universe if (sectors.get(t) if sectors else None) in HEALTH_SET and pos_mom(t)]
+
+    picks = set()
+    for cand in (conservative, aggressive, health):
+        picks |= set(_rank_eligible(closes, i, cand, sectors, k))
+    if not picks:
+        return {}
+    # inverse-volatility weights
+    inv = {}
+    for t in picks:
+        v = realized_vol_px(closes[t], i)
+        if v and v > 0:
+            inv[t] = 1.0 / v
+    tot = sum(inv.values())
+    return {t: inv[t] / tot for t in inv} if tot else {t: 1.0 / len(picks) for t in picks}
+
+
+SELECTORS = {"strategy": default_selector, "signal": default_selector, "combined": combined_selector}
+
+
 # ─────────────── engine ───────────────
 def rebalance_indices(dates, freq):
     """Indices at the last trading day of each month (or Friday for weekly)."""
@@ -96,7 +165,7 @@ def rebalance_indices(dates, freq):
         d, nxt = dates[i], dates[i + 1]
         if freq == "M" and d[5:7] != nxt[5:7]:
             idx.append(i)
-        elif freq == "W" and d > nxt[:0] and _weeknum(d) != _weeknum(nxt):
+        elif freq == "W" and _weeknum(d) != _weeknum(nxt):
             idx.append(i)
     return set(idx)
 
@@ -146,12 +215,9 @@ def run(dates, closes, opens, bench, universe, sectors, cfg):
 
         # 3) on a rebalance day, compute targets from data up to i, fill next open
         if i in reb and i >= cfg["warmup"] and i + 1 < n:
-            scores = score_universe(closes, i, universe, sectors)
-            if scores:
-                ranked = sorted(scores, key=lambda t: -scores[t])
-                k = cfg["top_n"] if cfg["mode"] == "strategy" else max(1, int(len(ranked) * cfg["top_quantile"]))
-                picks = ranked[:k]
-                pending = {t: 1.0 / len(picks) for t in picks}
+            targets = SELECTORS[cfg["mode"]](closes, i, universe, sectors, cfg)
+            if targets:
+                pending = targets
                 reb_equity.append(pv)
 
     # benchmark buy-hold from first marked day
@@ -217,7 +283,7 @@ def synthetic():
     for k in range(40):
         t = f"SYN{k:02d}"
         universe.append(t)
-        sectors[t] = f"Sector{k % 6}"
+        sectors[t] = "Health Technology" if k % 5 == 0 else f"Sector{k % 6}"
         trend = k < 14          # 14 planted momentum names
         base = 50.0
         cl, op = [], []
@@ -240,23 +306,48 @@ def synthetic():
     return dates, closes, opens, bench, universe, sectors
 
 
+def load_universe_csv(path):
+    """CSV with columns: ticker,sector — sector lets the Health sleeve work."""
+    import csv
+    tickers, sectors = [], {}
+    with open(path) as f:
+        for row in csv.DictReader(f):
+            t = (row.get("ticker") or "").strip().upper()
+            if not t:
+                continue
+            tickers.append(t)
+            sectors[t] = (row.get("sector") or "").strip()
+    return tickers, sectors
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sample", action="store_true")
-    ap.add_argument("--tickers", help="file with one ticker per line")
+    ap.add_argument("--universe", help="CSV with columns: ticker,sector (enables Health sleeve)")
+    ap.add_argument("--tickers", help="plain file, one ticker per line (no sectors)")
     ap.add_argument("--start", default="2015-01-01")
     ap.add_argument("--end", default=date.today().isoformat())
-    ap.add_argument("--mode", choices=["strategy", "signal"], default="strategy")
-    ap.add_argument("--top", type=int, default=10)
+    ap.add_argument("--mode", choices=["strategy", "signal", "combined"], default="strategy")
+    ap.add_argument("--rebalance", choices=["W", "M"], help="override cadence (W=weekly Mon, M=monthly)")
+    ap.add_argument("--top", type=int, default=None)
     args = ap.parse_args()
-    cfg = dict(DEFAULTS, mode=args.mode, top_n=args.top)
+    top = args.top if args.top else (5 if args.mode == "combined" else 10)
+    reb = args.rebalance or ("W" if args.mode == "combined" else DEFAULTS["rebalance"])
+    cfg = dict(DEFAULTS, mode=args.mode, top_n=top, rebalance=reb)
 
     if args.sample:
         dates, closes, opens, bench, universe, sectors = synthetic()
     else:
-        tickers = [l.strip() for l in open(args.tickers)] if args.tickers else DEMO_UNIVERSE
+        if args.universe:
+            tickers, sec_map = load_universe_csv(args.universe)
+        elif args.tickers:
+            tickers, sec_map = [l.strip() for l in open(args.tickers) if l.strip()], {}
+        else:
+            tickers, sec_map = DEMO_UNIVERSE, {}
         dates, closes, opens, bench, universe = load_yfinance(tickers, args.start, args.end)
-        sectors = {}
+        sectors = {t: sec_map.get(t) for t in universe}
+        if args.mode == "combined" and not any(sectors.values()):
+            print("WARNING: no sectors -> Health sleeve will be empty. Use --universe with a sector column.")
 
     equity, eq_bench, s = run(dates, closes, opens, bench, universe, sectors, cfg)
     ds_dates, ds_eq, ds_bench = downsample(dates, equity, eq_bench)
